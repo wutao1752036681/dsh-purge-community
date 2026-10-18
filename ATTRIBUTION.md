@@ -37,7 +37,11 @@ This repository is an **unofficial community fork** maintained to keep the plugi
    - File: `lib/core.js` (patch #40).
 
 3. **Metadata**
-   - `package.json`: version `1.1.74`, `dshTarget: 0.2.1-rc.2`, repository/homepage/install URLs point at this fork.
+   - `package.json`: version `1.1.75`, `dshTarget: 0.2.1-rc.2`, repository/homepage/install URLs point at this fork.
+
+4. **Red-team preset compatibility (1.1.75)**
+   - DSH 0.2.1-rc.2's `@deepseek-ai/dsh-tool-subagent` rejects `toolFilter`; the redteam preset became `registered-broken` and disappeared from the new-session mode picker.
+   - Removed `toolFilter` from `presets/redteam/agent.cordis.yml`; `lib/redteam/index.js` now strips it from an existing `.agent-presets/redteam/agent.cordis.yml` on boot.
 
 No other upstream behavior was intentionally changed. If you redistribute this fork or build on it, keep the original author's credit and the MIT copyright notice.
 
