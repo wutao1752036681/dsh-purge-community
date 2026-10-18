@@ -37,7 +37,7 @@ This repository is an **unofficial community fork** maintained to keep the plugi
    - File: `lib/core.js` (patch #40).
 
 3. **Metadata**
-   - `package.json`: version `1.1.73`, `dshTarget: 0.2.1-rc.2`, repository/homepage/install URLs point at this fork.
+   - `package.json`: version `1.1.74`, `dshTarget: 0.2.1-rc.2`, repository/homepage/install URLs point at this fork.
 
 No other upstream behavior was intentionally changed. If you redistribute this fork or build on it, keep the original author's credit and the MIT copyright notice.
 
