@@ -55,11 +55,11 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/wutao1752036681/dsh-purge-rc2.git"
+    "url": "git+https://github.com/wutao1752036681/dsh-purge-community.git"
   },
-  "homepage": "https://github.com/wutao1752036681/dsh-purge-rc2#readme",
+  "homepage": "https://github.com/wutao1752036681/dsh-purge-community#readme",
   "bugs": {
-    "url": "https://github.com/wutao1752036681/dsh-purge-rc2/issues"
+    "url": "https://github.com/wutao1752036681/dsh-purge-community/issues"
   },
   "dsh": {
     "bundle": {
@@ -77,9 +77,9 @@
     },
     "install": {
       "preferred": "tarball",
-      "tarball": "https://github.com/wutao1752036681/dsh-purge-rc2/archive/refs/heads/main.tar.gz",
-      "zip": "https://github.com/wutao1752036681/dsh-purge-rc2/archive/refs/heads/main.zip",
-      "git": "https://github.com/wutao1752036681/dsh-purge-rc2.git"
+      "tarball": "https://github.com/wutao1752036681/dsh-purge-community/archive/refs/heads/main.tar.gz",
+      "zip": "https://github.com/wutao1752036681/dsh-purge-community/archive/refs/heads/main.zip",
+      "git": "https://github.com/wutao1752036681/dsh-purge-community.git"
     }
   },
   "publishConfig": {

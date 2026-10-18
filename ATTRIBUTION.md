@@ -17,7 +17,7 @@ This repository is an **unofficial community fork** maintained to keep the plugi
 
 | | |
 |---|---|
-| Repository / 仓库 | https://github.com/wutao1752036681/dsh-purge-rc2 |
+| Repository / 仓库 | https://github.com/wutao1752036681/dsh-purge-community |
 | Maintainer of the changes / 改动维护者 | [@wutao1752036681](https://github.com/wutao1752036681) |
 | Base / 基线 | upstream `dsh-purge` 1.1.71 (commit `6c1d638`) |
 | Purpose / 目的 | DSH **0.2.1-rc.2** compatibility fixes while upstream maintenance is paused. |
