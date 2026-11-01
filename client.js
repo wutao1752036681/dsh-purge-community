@@ -449,6 +449,18 @@ window.__ModuleLoader__.load({ id: "dsh-purge", factory: (require) => {
 			"hooksDeny.bypass": "放行 hooks 的 deny / ask（补丁 30 / 31 / 64 / 65）",
 			"hooksDeny.hint": "关掉后，用户自己的 PreToolUse / UserPromptSubmit / Stop hook 的 deny 会按官方逻辑生效。官方 ask 分支本身是空操作，关开关不会弹出审批框。改完后点「应用」并重启才写进宿主。",
 			"saved.hooksDeny": "已保存",
+			"relay.title": "中转丢 system 角色（补丁 89）",
+			"relay.hint": "有些 OpenAI 兼容中转站会把 system / developer 消息整段丢弃，系统提示词根本没进模型：表现是「问你是谁」答错、注入不生效，而工具定义照常生效。开启后，命中主机名单的请求会把系统提示降级成 user 消息，并剥掉开头的伪 ChatML 标记。",
+			"relay.enable": "开启降级（system → user）",
+			"relay.hosts": "主机名单（子串匹配 baseURL，逗号分隔，* = 全部主机）",
+			"relay.detected": "本机配置里检测到：",
+			"relay.needHosts": "先填一个主机，例如 192.168.31.250 或 *",
+			"relay.statusOn": "当前：已开启 →",
+			"relay.statusOff": "当前：关闭（系统提示按 system 原样发送）",
+			"relay.envOnly": "白名单来自环境变量 DSH_PURGE_SYSTEM_AS_USER：",
+			"relay.notApplied": "补丁 89 还没打上，这个开关暂时不会起作用：先点下面「应用」并重启 dsh。",
+			"relay.restartHint": "开关只影响名单内主机的请求；改完记得点「应用」并重启 dsh。",
+			"saved.relay": "已保存",
 			"continue.title": "失败重试 / 继续",
 			"continue.hint": "请求失败会自动重试；异常停止或中断可点「继续」或自动续跑。自己点停止不会自动继续。次数用完后需新开一轮。",
 			"continue.autoRetry": "失败自动重试",
@@ -789,6 +801,18 @@ window.__ModuleLoader__.load({ id: "dsh-purge", factory: (require) => {
 			"hooksDeny.bypass": "Bypass hook deny / ask (patches 30 / 31 / 64 / 65)",
 			"hooksDeny.hint": "When off, your own PreToolUse / UserPromptSubmit / Stop hook deny runs as the official host wrote it. The official ask branch is a no-op; turning this off will not show an approval dialog. Click Apply and restart to write the host files.",
 			"saved.hooksDeny": "Saved",
+			"relay.title": "Relay drops system role (patch 89)",
+			"relay.hint": "Some OpenAI-compatible relays drop every system / developer message, so the system prompt never reaches the model: the agent misidentifies itself and injections stop working, while tool definitions still apply. When enabled, requests to matching hosts downgrade the system prompt to a user message and strip a leading pseudo-ChatML wrapper.",
+			"relay.enable": "Enable downgrade (system → user)",
+			"relay.hosts": "Host allowlist (substring match on baseURL, comma separated, * = all hosts)",
+			"relay.detected": "Detected in local config:",
+			"relay.needHosts": "Add a host first, e.g. 192.168.31.250 or *",
+			"relay.statusOn": "Now: enabled →",
+			"relay.statusOff": "Now: off (system prompt is sent as system)",
+			"relay.envOnly": "Allowlist comes from env DSH_PURGE_SYSTEM_AS_USER:",
+			"relay.notApplied": "Patch 89 is not applied yet, so this switch has no effect: hit Apply below and restart dsh.",
+			"relay.restartHint": "Only requests to listed hosts are affected; hit Apply and restart dsh after changing it.",
+			"saved.relay": "Saved",
 			"continue.title": "Retry / Continue",
 			"continue.hint": "Failed requests auto-retry. After an abnormal stop or interrupt, use Continue or auto-resume. A manual stop never auto-continues. Counts reset after a completed turn.",
 			"continue.autoRetry": "Auto-retry on failure",
@@ -1232,6 +1256,111 @@ body:not([data-ds-dark-theme]) .dshp-auth-ops button.primary{background:var(--ds
 						t("hooksDeny.bypass"),
 					),
 				),
+			);
+		}
+
+		function patch89Applied(state) {
+			const map = (state && state.patch_status) || null;
+			if (!map) return null;
+			const v = map[89] || map["89"];
+			if (typeof v === "string") return v === "applied";
+			if (v && typeof v === "object") return v.status === "applied";
+			return null;
+		}
+
+		function RelaySystemSection({ onSaved, patchApplied }) {
+			const t = useT();
+			const [cfg, setCfg] = useState(null);
+			const [draft, setDraft] = useState("");
+			const [notice, setNotice] = useState({ kind: "idle", text: "" });
+			const [busy, setBusy] = useState(false);
+
+			const apply = (d) => {
+				if (d && d.ok) { setCfg(d); setDraft((d.fileHosts || []).join(", ")); }
+			};
+
+			useEffect(() => {
+				let alive = true;
+				apiJson("/dsh-purge/system-as-user").then((d) => { if (alive) apply(d); }).catch(() => {});
+				return () => { alive = false; };
+			}, []);
+
+			const save = (action, hosts) => {
+				if (busy) return;
+				setBusy(true);
+				setNotice({ kind: "idle", text: "" });
+				apiJson("/dsh-purge/system-as-user", {
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify({ action: action, hosts: hosts }),
+				}).then((d) => {
+					if (d && d.ok) {
+						apply(d);
+						setNotice({ kind: "ok", text: t("saved.relay") });
+						if (typeof onSaved === "function") onSaved();
+					} else {
+						setNotice({ kind: "error", text: t("err.save", { error: (d && d.error) || "" }) });
+					}
+				}).catch((e) => setNotice({ kind: "error", text: t("err.save", { error: e.message }) }))
+					.finally(() => setBusy(false));
+			};
+
+			if (!cfg) return null;
+			const fileHosts = cfg.fileHosts || [];
+			const envHosts = cfg.envHosts || [];
+			const suggested = cfg.suggested || [];
+			const on = cfg.enabled === true;
+			const envOnly = fileHosts.length === 0 && envHosts.length > 0;
+			const locked = busy || envOnly;
+			const mute = { margin: "6px 0 0", color: "var(--dshp-mute)", fontSize: 12 };
+			return h("div", { className: "dshp-cr", style: { marginTop: 12 } },
+				h("div", { className: "dshp-sub" }, h("h4", null, t("relay.title")), noticeNode(notice)),
+				h("p", { className: "dshp-hint", style: mute }, t("relay.hint")),
+				h("label", { style: { display: "flex", alignItems: "center", gap: 8, margin: "8px 0" } },
+					h("input", {
+						type: "checkbox",
+						checked: on,
+						disabled: locked,
+						onChange: (e) => {
+							if (!e.target.checked) { save("off", ""); return; }
+							const seed = draft.trim() || suggested[0] || "";
+							if (!seed) { setNotice({ kind: "error", text: t("relay.needHosts") }); return; }
+							setDraft(seed);
+							save("set", seed);
+						},
+					}),
+					t("relay.enable"),
+				),
+				h("label", { style: { display: "block", margin: "0 0 6px" } },
+					h("span", { style: { display: "block", marginBottom: 4, fontSize: 12 } }, t("relay.hosts")),
+					h("input", {
+						className: "dshp-field",
+						type: "text",
+						value: draft,
+						disabled: locked,
+						placeholder: suggested.join(", ") || "192.168.31.250",
+						onChange: (e) => setDraft(e.target.value),
+						onBlur: () => {
+							const next = draft.trim();
+							if (next !== fileHosts.join(", ")) save("set", next);
+						},
+						onKeyDown: (e) => { if (e.key === "Enter") e.currentTarget.blur(); },
+					}),
+				),
+				suggested.length ? h("div", { style: { display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6, margin: "0 0 6px", fontSize: 12 } },
+					h("span", { style: { color: "var(--dshp-mute)" } }, t("relay.detected")),
+					suggested.map((host) => h(Btn, {
+						key: host,
+						tiny: true,
+						disabled: locked,
+						onClick: () => { setDraft(host); save("set", host); },
+					}, host)),
+				) : null,
+				envOnly ? h("p", { className: "dshp-hint", style: mute }, t("relay.envOnly") + " " + envHosts.join(", ")) : null,
+				h("p", { className: "dshp-hint", style: Object.assign({}, mute, { color: on ? "var(--dshp-good, #2a7)" : "var(--dshp-mute)" }) },
+					on ? t("relay.statusOn") + " " + (cfg.hosts || []).join(", ") : t("relay.statusOff")),
+				on && patchApplied === false ? h("p", { className: "dshp-hint", style: Object.assign({}, mute, { color: "var(--dshp-danger, #c44)" }) }, t("relay.notApplied")) : null,
+				h("p", { className: "dshp-hint", style: mute }, t("relay.restartHint")),
 			);
 		}
 
@@ -1944,6 +2073,7 @@ body:not([data-ds-dark-theme]) .dshp-auth-ops button.primary{background:var(--ds
 				h("div", { className: "dshp-bar", "aria-hidden": "true" }, h("i", { style: { width: pct + "%" } })),
 				h(PatchGroups, { state: s }),
 				h(HooksDenySection, { onSaved: loadAll }),
+				h(RelaySystemSection, { onSaved: loadAll, patchApplied: patch89Applied(s) }),
 				h("div", { className: "dshp-row", style: { marginTop: 14 } },
 					h(Btn, { kind: "primary", disabled: patchBusy || uninstallBusy || !overrideLoaded, onClick: () => doAction("apply", "action.apply") }, patchBusy ? t("btn.apply.busy") : t("btn.apply")),
 					h(Btn, { kind: "danger", disabled: patchBusy || uninstallBusy, onClick: () => doAction("revert", "action.revert") }, t("btn.revert")),

@@ -4,7 +4,7 @@
 
 <h1 align="center">⚔️ DeepSeek Harness cybersecurity red-team tool (dsh-purge)</h1>
 
-<p align="center"><strong>Version 1.1.75 · DSH 0.2.1-rc.2 community fix</strong></p>
+<p align="center"><strong>Version 1.1.76 · DSH 0.2.1-rc.2 community fix</strong></p>
 
 <p align="center">
   <em>DeepSeek Harness jailbreak: every model, swap prompts per model. Default prompt for 小码酱. Please star ⭐ If you build on this, see Attribution required.</em>
@@ -175,7 +175,7 @@ The upstream Hub one-click on [dsh-plugin.org](https://dsh-plugin.org/plugins/yu
 For the desktop client you can also click the button (`dsh://` deep link):
 
 <p align="center">
-  <a href="dsh://plugin/install?id=dsh-purge&name=dsh-purge&version=1.1.75&repo=wutao1752036681%2Fdsh-purge-community&permissions=%E7%B3%BB%E7%BB%9F%E6%8F%90%E7%A4%BA%E8%AF%8D%E6%B3%A8%E5%85%A5%2C%E6%9C%AC%E6%9C%BA%E8%A1%A5%E4%B8%81%2C%E8%AE%BE%E7%BD%AE%E9%A1%B5&downloadUrl=https%3A%2F%2Fgithub.com%2Fwutao1752036681%2Fdsh-purge-community%2Farchive%2Frefs%2Fheads%2Fmain.tar.gz"><strong>Install in desktop client</strong></a>
+  <a href="dsh://plugin/install?id=dsh-purge&name=dsh-purge&version=1.1.76&repo=wutao1752036681%2Fdsh-purge-community&permissions=%E7%B3%BB%E7%BB%9F%E6%8F%90%E7%A4%BA%E8%AF%8D%E6%B3%A8%E5%85%A5%2C%E6%9C%AC%E6%9C%BA%E8%A1%A5%E4%B8%81%2C%E8%AE%BE%E7%BD%AE%E9%A1%B5&downloadUrl=https%3A%2F%2Fgithub.com%2Fwutao1752036681%2Fdsh-purge-community%2Farchive%2Frefs%2Fheads%2Fmain.tar.gz"><strong>Install in desktop client</strong></a>
 </p>
 
 ### After the command: three steps
@@ -390,8 +390,10 @@ dsh-purge --edit
 /skills list | import <zip-or-folder> | create <id> [description] | delete <id> | help
 /rewind
 
-purge_status   purge_apply   purge_revert
+purge_status   purge_apply   purge_revert   purge_system_as_user
 ```
+
+`purge_system_as_user` is the switch for relays that drop the system role (patch #89): `status` shows the allowlist, `on` / `add` / `remove` / `off` edit it (host substring match, `*` = every provider) — so you can just say "enable system downgrade for 192.168.31.250" in chat instead of running the script, and `purge_status` shows the current allowlist too.
 
 After a successful Apply, the host restarts so patched packages load; you can also click **Restart** manually. Under the patch title are the stable release and the test release. The test release follows the `beta` branch. **Switch to stable** installs `master` and clears any pin. Picking an older stable version pins it; click **Update** to return to the latest. Old test tags are not listed.
 
@@ -550,6 +552,47 @@ Community Desktop is not maintained.
 Official npm-global is not patched. Sealed `host-commands` / `runtime-commands` are scrubbed, never injected.
 
 If nothing is found, set `DSH_BASE` / `DSH_DESKTOP_INSTALL`. No files are changed.
+
+---
+
+## Relays that drop the `system` role (injection silently ignored)
+
+Some OpenAI-compatible relays and aggregator gateways **silently discard every `role:"system"` message**, `developer` too. The plugin writes the prompt, the UI says "injected", and the text never reaches the model: the model does not know who it is, the jailbreak does nothing, and the request tokens look normal.
+
+Measured with one identical text, only the role changed:
+
+| Role sent | prompt_tokens | Model behaviour |
+|---|---|---|
+| `system` | 63 (baseline, not counted) | has no idea the prompt exists |
+| `developer` | 63 (same) | same |
+| `user` | 91 (counted) | repeats the canary correctly |
+
+A 27K-character `system` still costs 63; the same text as `user` costs 5,275. `system` placed mid-array (`user` + `system` + `user`) is swallowed too; a top-level `instructions` field is ignored; identical across 6 different models; independent of streaming, length and position. The tool array is billed normally (48 schemas = 10,575 tokens), so "tools work" proves nothing about the system prompt.
+
+Two fixes, pick one:
+
+1. **Code patch #89 (recommended, no extra process)** —— system instructions are downgraded to a `user` message for the listed providers only. Opt-in via a host allowlist.
+
+   **Easiest: flip it in the dsh-purge settings page** (no commands needed). The page has a "Relay drops system role (patch 89)" block: tick the box to enable, type the relay host in the allowlist field (substring match, comma separated, `*` = all hosts). Hosts read from your provider `baseURL` config are offered as one-click chips (e.g. `192.168.31.250`). The switch reads/writes the same `<DSH_HOME>/system-as-user.txt`, so it is exactly equivalent to the CLI and the model tool; if #89 is not applied yet the block says so and tells you to Apply + restart.
+
+   CLI equivalent:
+
+   ```bash
+   node scripts/system-as-user.mjs on 192.168.31.250      # your relay host (substring match)
+   node scripts/system-as-user.mjs on '*'                 # all providers
+   node scripts/system-as-user.mjs status
+   node scripts/system-as-user.mjs off
+   ```
+
+   Equivalent to `DSH_PURGE_SYSTEM_AS_USER=192.168.31.250`, or a host list in `<DSH_HOME>/system-as-user.txt`. Restart dsh and start a new session.
+
+You can also flip it from chat: the `purge_system_as_user` model tool (`action=on|add|remove|off|status`, `hosts=192.168.31.250`) — just say "enable system downgrade for 192.168.31.250", and `purge_status` reports the current allowlist plus whether #89 is applied.
+
+   > **Second half that is easy to miss**: once the text travels as a `user` message, a leading ChatML marker such as ` <|im_start|>system:` in your inject file makes the model treat the whole prompt as a forged control token / prompt injection and refuse the persona out loud. The patch strips that envelope (and a trailing `<|im_end|>`) before sending. Files patched with the older v1 payload upgrade automatically via the v2 marker.
+
+2. **Local relay shim (fallback when patches cannot land)** —— a local port that lifts `system`/`developer` out of the request, rewrites them as a leading `user` message, and forwards to the relay; then point the provider `baseURL` at it. Costs an extra process and a single point of failure, and the prompt is no longer a real system message.
+
+**How to verify delivery**: take a real request's `prompt_tokens`, subtract the tool-schema overhead (tens of tools is usually >10k tokens). If the remainder cannot hold your prompt (roughly 0.19 tokens per character), it was dropped.
 
 ---
 

@@ -4,7 +4,7 @@
 
 <h1 align="center">⚔️ DeepSeek Harness 网络安全红队工具（dsh-purge）</h1>
 
-<p align="center"><strong>Version 1.1.75 · DSH 0.2.1-rc.2 社区修复</strong></p>
+<p align="center"><strong>Version 1.1.76 · DSH 0.2.1-rc.2 社区修复</strong></p>
 
 <p align="center">
   <em>DeepSeek Harness 破甲：让所有模型都能破甲，不同模型可换不同提示词；默认提示词面向国模「小码酱」。Jailbreak for every model — swap prompts per model. 求 Star 收藏 ⭐ 如要二开，请查看署名要求部分</em>
@@ -173,7 +173,7 @@ dsh plugin --profile desktop add github:wutao1752036681/dsh-purge-community
 桌面客户端也可以点按钮（`dsh://` 唤起）：
 
 <p align="center">
-  <a href="dsh://plugin/install?id=dsh-purge&name=dsh-purge&version=1.1.75&repo=wutao1752036681%2Fdsh-purge-community&permissions=%E7%B3%BB%E7%BB%9F%E6%8F%90%E7%A4%BA%E8%AF%8D%E6%B3%A8%E5%85%A5%2C%E6%9C%AC%E6%9C%BA%E8%A1%A5%E4%B8%81%2C%E8%AE%BE%E7%BD%AE%E9%A1%B5&downloadUrl=https%3A%2F%2Fgithub.com%2Fwutao1752036681%2Fdsh-purge-community%2Farchive%2Frefs%2Fheads%2Fmain.tar.gz"><strong>唤起客户端一键安装</strong></a>
+  <a href="dsh://plugin/install?id=dsh-purge&name=dsh-purge&version=1.1.76&repo=wutao1752036681%2Fdsh-purge-community&permissions=%E7%B3%BB%E7%BB%9F%E6%8F%90%E7%A4%BA%E8%AF%8D%E6%B3%A8%E5%85%A5%2C%E6%9C%AC%E6%9C%BA%E8%A1%A5%E4%B8%81%2C%E8%AE%BE%E7%BD%AE%E9%A1%B5&downloadUrl=https%3A%2F%2Fgithub.com%2Fwutao1752036681%2Fdsh-purge-community%2Farchive%2Frefs%2Fheads%2Fmain.tar.gz"><strong>唤起客户端一键安装</strong></a>
 </p>
 
 ### 装完都要做这三步
@@ -397,8 +397,10 @@ dsh-purge --edit
 /rewind
 
 # 模型工具
-purge_status   purge_apply   purge_revert
+purge_status   purge_apply   purge_revert   purge_system_as_user
 ```
+
+`purge_system_as_user` 是中转丢 system 角色时的开关（patch #89）：`status` 看白名单，`on` / `add` / `remove` / `off` 改白名单（主机子串匹配，`*` = 全部），也就是说不用再开终端敲脚本，直接说「把 192.168.31.250 开成 system 降级」即可，`purge_status` 里也会显示当前白名单。
 
 设置页「应用」成功后会自动重启，以加载已改的包文件；也可手动点「重启」。补丁标题下有正式版和测试版。测试版跟 `beta` 分支。点「切换到正式版」会装回 master，并清掉钉选。正式版里选旧版本会固定在该版本，要回到最新再点「更新」。旧的测试标签不再列出。
 
@@ -557,6 +559,48 @@ flowchart LR
 **官方桌面：** 只改当前正在运行的官方桌面安装。点「应用」成功后会自动重启一次。社区桌面端不维护。
 
 找不到目标时提示设置 `DSH_BASE`，不改文件。
+
+---
+
+## 中转丢 system 角色（注入不生效 / 问「你是谁」答错）
+
+有些 OpenAI 兼容中转站、聚合网关会**把 `role:"system"` 的消息整段静默丢掉**，连 `developer` 一起丢。这时候插件把提示词写进了系统提示、界面也显示「已注入」，但请求里那段根本没到模型：模型不知道自己是谁，破甲自然不生效，而且请求 token 里也看不出异常。
+
+实测一组对照（同一段文本，只改角色）：
+
+| 发送角色 | prompt_tokens | 模型行为 |
+|---|---|---|
+| `system` | 63（基线，未计入） | 完全不知道提示词内容 |
+| `developer` | 63（同上） | 同上 |
+| `user` | 91（计入） | 正确复述提示词里的口令 |
+
+27K 字符的 `system` 仍然只有 63；换到 `user` 变成 5,275。`system` 不在首位（user + system + user）也一样被吞；顶层 `instructions` 字段被忽略；跨 6 个不同模型一致；与流式、长度、位置无关。工具数组却正常计费（48 个 schema = 10,575 tokens），所以「工具能用」不能证明系统提示也送到了。
+
+两种修法，按你的环境选一种：
+
+1. **代码补丁 #89（推荐，无额外进程）** —— 打上后，对指定的 provider 把系统提示降级成 user 消息再发。默认关闭，用主机白名单开启。
+
+   **最省事：直接在 dsh-purge 设置页开关**（推荐，不用敲命令）。设置页里有「中转丢 system 角色（补丁 89）」一栏：勾选即开启，主机名单框里填中转站主机（子串匹配，逗号分隔，`*` = 全部主机）；页面会自动把本机 provider 配置里读到的 `baseURL` 主机列成快捷按钮（例如 `192.168.31.250`），点一下就填好。开关读写的就是同一个 `<DSH_HOME>/system-as-user.txt`，与命令行/模型工具完全等价；若 #89 还没打，页面会直接提示「先点应用并重启」。
+
+   命令行等价操作：
+
+   ```bash
+   node scripts/system-as-user.mjs on 192.168.31.250      # 你中转站的主机（子串匹配）
+   node scripts/system-as-user.mjs on '*'                 # 或全部 provider
+   node scripts/system-as-user.mjs status
+   node scripts/system-as-user.mjs off
+   ```
+
+   等价于设环境变量 `DSH_PURGE_SYSTEM_AS_USER=192.168.31.250`，或写 `<DSH_HOME>/system-as-user.txt`（一行主机列表）。改完重启 dsh、新开会话。
+
+聊天里也能开：模型工具 `purge_system_as_user`（`action=on|add|remove|off|status`，`hosts=192.168.31.250`），直接说「把 192.168.31.250 开成 system 降级」即可；`purge_status` 会显示当前白名单与 #89 是否已打。
+
+   > **配套细节（不然只做一半等于没做）**：降级成 `user` 之后，系统文本会以普通用户消息的身份出现。如果你的注入文件（`<DSH_HOME>/prompt-inject.md`）开头写着 ` <|im_start|>system:` 这类 ChatML 控制标记，补丁会先把它剥掉（末尾的 `<|im_end|>` 同理）再发，否则模型会把整段系统提示当成「伪造的控制标记 / 注入攻击」而公开拒绝扮演。老版本打过 v1 的文件用 v2 marker 自动升级，无需手工回滚。
+
+
+2. **本机中转 shim（补丁打不上时的兜底）** —— 起一个本地转发端口，把请求里的 system/developer 抽出来改写成置顶 user 再转发给中转站，然后把 provider 的 `baseURL` 指向本地端口。缺点是多一个进程、多一个单点，且系统提示从 system 角色变成了普通用户消息。
+
+**怎么确认到底送没送到**：拿一次真实请求的 `prompt_tokens` 减去工具 schema 的开销（几十个工具通常上万 token），差值如果装不下你的提示词字符数（约 0.19 token/字符），就是被丢了。
 
 ---
 

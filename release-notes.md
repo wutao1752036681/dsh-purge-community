@@ -1,3 +1,19 @@
+# 1.1.76
+
+## 中文
+
+- 版本 **1.1.76**。
+- 设置页新增「中转丢 system 角色（补丁 89）」开关：勾选即开启、主机名单可直接编辑，页面会把 provider 配置里的 `baseURL` 主机列成快捷按钮，不用再敲命令。
+- 开关读写的就是 `<DSH_HOME>/system-as-user.txt`，与 `node scripts/system-as-user.mjs`、模型工具 `purge_system_as_user` 完全等价；#89 未打时页面会直接提示先应用并重启。
+- `/dsh-purge/system-as-user` 路由 + `/dsh-purge/status` 的 `system_as_user` 字段；`core.suggestRelayHosts()` 负责从本机 provider 配置里读主机。
+
+## English
+
+- **1.1.76**.
+- New settings switch "Relay drops system role (patch 89)": tick to enable, edit the host allowlist inline, and hosts parsed from your provider `baseURL` config show up as one-click chips — no CLI needed.
+- The switch reads/writes the same `<DSH_HOME>/system-as-user.txt`, so it is equivalent to `node scripts/system-as-user.mjs` and the `purge_system_as_user` tool; when #89 is not applied the page says so and asks for Apply + restart.
+- Adds the `/dsh-purge/system-as-user` route, a `system_as_user` field on `/dsh-purge/status`, and `core.suggestRelayHosts()`.
+
 # 1.1.71
 
 ## 中文
