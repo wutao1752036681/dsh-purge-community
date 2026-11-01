@@ -3,7 +3,9 @@ name: Release
 on:
   push:
     branches:
-      - master
+      - main
+    tags:
+      - "v*"
 
 permissions:
   contents: write
@@ -14,7 +16,6 @@ concurrency:
 
 jobs:
   release:
-    if: github.repository == 'YuJunZhiXue/dsh-purge'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -23,10 +24,11 @@ jobs:
 
       - name: Syntax-check plugin entry
         run: |
+          node --check client.js
           node --check lib/index.js
           node --check lib/core.js
+          node --check lib/update.js
           node --check lib/reapply.js
-          node --input-type=module -e "import './lib/index.js'"
 
       - name: Publish GitHub Release
         env:
@@ -44,14 +46,21 @@ jobs:
             echo "release-notes.md 第一行必须是 # ${version}，现在是: ${first}"
             exit 1
           fi
+          # 只取本版本的段落（到下一个 "# " 标题为止）
+          awk -v v="${version}" '
+            $0 == "# " v { on = 1; next }
+            on && /^# / { exit }
+            on { print }
+          ' release-notes.md > notes.md
+          test -s notes.md
           zip="dsh-purge-${version}.zip"
           if git rev-parse -q --verify "refs/tags/${tag}^{}" >/dev/null; then
             commit="$(git rev-parse "refs/tags/${tag}^{}")"
             git archive --format=zip --prefix="dsh-purge-${version}/" --output="$zip" "$commit"
-            gh release create "$tag" --title "$tag" --notes-file release-notes.md
+            gh release create "$tag" --title "dsh-purge-community ${tag}" --notes-file notes.md
           else
             git archive --format=zip --prefix="dsh-purge-${version}/" --output="$zip" HEAD
-            args=(release create "$tag" --target "$GITHUB_SHA" --title "$tag" --notes-file release-notes.md)
+            args=(release create "$tag" --target "$GITHUB_SHA" --title "dsh-purge-community ${tag}" --notes-file notes.md)
             case "$version" in
               *beta*|*alpha*|*rc*) args+=(--prerelease) ;;
             esac
@@ -59,4 +68,4 @@ jobs:
           fi
           test -s "$zip"
           gh release upload "$tag" "$zip" --clobber
-          echo "published https://github.com/YuJunZhiXue/dsh-purge/releases/tag/${tag}"
+          echo "published ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/${tag}"

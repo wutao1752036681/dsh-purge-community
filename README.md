@@ -598,7 +598,15 @@ You can also flip it from chat: the `purge_system_as_user` model tool (`action=o
 
 ## Releases
 
-What changed, and the zip, are on [Releases](https://github.com/YuJunZhiXue/dsh-purge/releases). To publish, bump the version in `package.json`, write Chinese and English notes in `release-notes.md`, and push `master`. Pushing the same version again does not publish another package.
+What changed, and the zip, are on [Releases](https://github.com/wutao1752036681/dsh-purge-community/releases). To publish: bump the version in `package.json`, make the first line of `release-notes.md` read `# <version>` with Chinese and English notes under it, commit, create the annotated tag, then push `main` and the tag. A tag push (`v*`) or a `main` push publishes the GitHub Release automatically (`.github/workflows/release.yml`): it takes only that version's section as the notes and attaches `dsh-purge-<version>.zip`. Pushing the same version again does not publish another package.
+
+If the workflow is unavailable (fork permissions, Actions disabled, notes already published by hand), finish it locally — it reads the stored git credential or `GH_TOKEN`/`GITHUB_TOKEN`:
+
+```bash
+node scripts/create-release.mjs            # current package.json version
+node scripts/create-release.mjs 1.1.76     # backfill an older tag
+node scripts/create-release.mjs 1.1.77 --force-notes   # rewrite the notes text
+```
 
 ## Notes
 

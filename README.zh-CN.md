@@ -606,7 +606,15 @@ flowchart LR
 
 ## 更新
 
-每一版改了什么、安装包在 [Releases](https://github.com/YuJunZhiXue/dsh-purge/releases)。发新版时把 `package.json` 的版本号改掉，中英文说明写进 `release-notes.md`，推到 `master` 就会自动打包。同一版本再推送不会重复发包。
+每一版改了什么、安装包在 [Releases](https://github.com/wutao1752036681/dsh-purge-community/releases)。发新版时把 `package.json` 的版本号改掉，`release-notes.md` 第一行写成 `# <版本号>`、下面写中英文说明，提交后打附注标签，再把 `main` 和标签一起推上去。推标签（`v*`）或推 `main` 都会自动发 GitHub Release（`.github/workflows/release.yml`）：只取该版本那一段作说明，并附 `dsh-purge-<版本号>.zip`。同一版本再推送不会重复发包。
+
+工作流跑不了时（fork 权限、Actions 被关、或说明被手工发过）就地补发，脚本会读 git 里存的凭据或 `GH_TOKEN`/`GITHUB_TOKEN`：
+
+```bash
+node scripts/create-release.mjs            # 用 package.json 当前版本
+node scripts/create-release.mjs 1.1.76     # 补发历史版本
+node scripts/create-release.mjs 1.1.77 --force-notes   # 重写已有 release 的说明
+```
 
 ## 说明
 
