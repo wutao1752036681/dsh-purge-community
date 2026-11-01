@@ -37,7 +37,7 @@ This repository is an **unofficial community fork** maintained to keep the plugi
    - File: `lib/core.js` (patch #40).
 
 3. **Metadata**
-   - `package.json`: version `1.1.76`, `dshTarget: 0.2.1-rc.2`, repository/homepage/install URLs point at this fork.
+   - `package.json`: version `1.1.77`, `dshTarget: 0.2.1-rc.2`, repository/homepage/install URLs point at this fork.
 
 4. **Red-team preset compatibility (1.1.75)**
    - DSH 0.2.1-rc.2's `@deepseek-ai/dsh-tool-subagent` rejects `toolFilter`; the redteam preset became `registered-broken` and disappeared from the new-session mode picker.

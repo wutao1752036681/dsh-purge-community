@@ -1,3 +1,21 @@
+# 1.1.77
+
+## 中文
+
+- 版本 **1.1.77**。
+- 修掉版本下拉框里的怪现象：最新那一行会退化成一串提交号（例如 `d874487（正式）`），并且「最新」显示两次。
+- 分支头正好是某个发版 tag 时直接沿用 tag 的版本号，不再单列一条 hash 行；服务端的 label 不再自带「最新」，由前端统一追加一次。
+- 取版本号的三条通道（api.github.com / raw.githubusercontent / jsdelivr）被限流或被墙时，改用 `git ls-remote` 兜底拿 tag 与分支头；再不行就用上次成功抓到的列表缓存 `<DSH_HOME>/dsh-purge/remote-versions.json`，下拉框里始终能看到版本号。
+- `ensureRunningVersion`/`markCurrent` 里的 `master` 字面量改为跟随 `STABLE_REF`（仓库分支是 `main`）。
+
+## English
+
+- **1.1.77**.
+- Fixes the version picker: the newest row could degrade into a bare commit hash (e.g. `d874487 (正式)`) and "latest" was rendered twice.
+- When the branch head is a tagged release commit, the tag's version is reused instead of listing a separate hash row; the server-side label no longer carries "最新", the client appends it exactly once.
+- When api.github.com / raw.githubusercontent / jsdelivr are rate-limited or blocked, `git ls-remote` is used to read tags and branch heads; failing that, the last successful list is cached at `<DSH_HOME>/dsh-purge/remote-versions.json` so the picker always shows versions.
+- `ensureRunningVersion`/`markCurrent` now follow `STABLE_REF` (the branch is `main`) instead of a hardcoded `master`.
+
 # 1.1.76
 
 ## 中文

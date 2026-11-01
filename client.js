@@ -2519,7 +2519,12 @@ body:not([data-ds-dark-theme]) .dshp-auth-ops button.primary{background:var(--ds
 			const ver = String((item && item.version) || "").replace(/^v/i, "");
 			const base = ver ? ("v" + ver) : ((item && (item.label || item.ref)) || "—");
 			if (item && item.current) return base + " · " + tr("update.current");
-			if (item && item.latest) return base + " · " + tr("update.tip");
+			if (item && item.latest) {
+				const tip = tr("update.tip");
+				// 老服务端的 label 里已经带过一次「最新」，别叠加成「最新 · 最新」。
+				if (String(base).includes(tip)) return base;
+				return base + " · " + tip;
+			}
 			return base;
 		}
 
