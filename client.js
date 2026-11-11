@@ -8734,17 +8734,43 @@ body[data-ds-dark-theme] .dshp-rewind-item span{color:var(--dsw-alias-label-tert
 			);
 		}
 
-		function PurgeLauncher() {
+		function PurgeLauncher(props) {
 			const t = useT();
 			const st = useDock();
-			return h("button", {
+			const fallback = !!(props && props.fallback);
+			const attrs = {
 				type: "button",
 				className: "dshp-launch",
 				"data-open": st.open ? "1" : "0",
-				"data-testid": "dsh-purge-launch",
+				"data-testid": fallback ? "dsh-purge-launch-fallback" : "dsh-purge-launch",
 				title: t("dock.newSession"),
 				onClick: () => toggleDock(),
-			}, t("dock.newSession"));
+			};
+			/* 主入口打标：兜底入口靠它判断自己要不要让位 */
+			if (!fallback) attrs["data-dsh-purge-primary"] = "1";
+			return h("button", attrs, t("dock.newSession"));
+		}
+
+		/** 入口兜底：宿主不渲染 shell.overlay 的插件节点时（issue #1 Bug 4，dsh 0.2.1 桌面版），
+		 *  改挂 conversation.input.right —— 该 slot 上 rewind UI 一直正常，是同一份 client。
+		 *  主入口一旦出现就自动退出，不会同时出现两个按钮。 */
+		function PurgeFallbackEntry() {
+			const [show, setShow] = useState(false);
+			useEffect(() => {
+				let dead = false;
+				const decide = () => {
+					if (dead || typeof document === "undefined") return;
+					setShow(!document.querySelector('[data-dsh-purge-primary="1"]'));
+				};
+				const first = setTimeout(decide, 1200);
+				const iv = setInterval(decide, 2000);
+				return () => { dead = true; clearTimeout(first); clearInterval(iv); };
+			}, []);
+			if (!show) return null;
+			return h(react.Fragment, null,
+				h(PurgeLauncher, { fallback: true }),
+				h(PurgeDock),
+			);
 		}
 
 		/** 首页：模式旁挂「dsh-purge」→ 打开插件。红队模式走模式下拉（registry 声明）。 */
@@ -8906,6 +8932,13 @@ body[data-ds-dark-theme] .dshp-rewind-item span{color:var(--dsw-alias-label-tert
 				id: "dsh-purge-dock",
 				order: 50,
 			}, () => h(react.Fragment, null, h(WelcomeNotice), h(PurgeLauncher), h(PurgeDock), h(HeroNewSessionMount), h(TabRowPurgeMount), h(EnvAdaptSendGate))));
+			/* issue #1 Bug 4 兜底：shell.overlay 不渲染时，入口仍可从输入框右侧进入。
+			   主入口渲染出来后 PurgeFallbackEntry 自己会返回 null。 */
+			ctx.slots.inject("conversation.input.right", () => ctx.slots.register({
+				name: "conversation.input.right",
+				id: "dsh-purge-entry-fallback",
+				order: 30,
+			}, PurgeFallbackEntry));
 			try {
 				if (typeof ctx.inject === "function") {
 					ctx.inject(["sessions", "uiWorkspace", "workspaces", "conversation"], (host) => installRewindUi(host));
