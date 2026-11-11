@@ -1,3 +1,17 @@
+# 1.1.80
+
+## 中文
+
+- 版本 **1.1.80**。
+- 插件入口双挂（issue #1 Bug 4）：除了 `shell.overlay`，入口同时注册到 `conversation.input.right`。宿主不渲染 `shell.overlay` 的插件节点时，浮动按钮和面板仍能从输入框右侧打开；主入口一旦渲染出来，兜底组件在 2 秒内自行退出，不会同时出现两个按钮。
+- 修复 `shell.overlay` 在 dsh 0.2.1 桌面版上「slot 存在但注册的节点不渲染」的兜底缺失 —— 与 issue 反馈的 rewinds UI（同一条 `conversation.input.right`）表现不一致的问题对齐。
+
+## English
+
+- **1.1.80**.
+- Dual entry points (issue #1, bug 4): besides `shell.overlay`, the entry now also registers on `conversation.input.right`. When the host does not render plugin nodes inside `shell.overlay`, the floating button and panel are still reachable from the right side of the composer; once the primary entry renders, the fallback withdraws itself within 2 seconds, so the two never show at once.
+- Fixes the missing fallback for "the slot exists but the registered node does not render" on dsh 0.2.1 desktop — aligning with the rewind UI, which works on that same `conversation.input.right` slot.
+
 # 1.1.79
 
 ## 中文
