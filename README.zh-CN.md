@@ -46,9 +46,14 @@
 - [界面](#界面预览)
 - [使用](#使用)
 - [自己的服务器](#自己的服务器)
+- [本地校验](#本地校验)
 - [工作原理](#工作原理)
 - [还原](#还原)
+- [路径探测](#路径探测)
+- [中转丢 system 角色](#中转丢-system-角色注入不生效--问你是谁答错)
+- [可靠性与安全护栏](#可靠性与安全护栏)
 - [更新](#更新)
+- [说明](#说明)
 
 ---
 
@@ -455,12 +460,29 @@ DSH 会按顺序执行同一批中的 Bash 调用。旧版 dsh-purge 把默认�
 
 ## 本地校验
 
+只查语法，最快，不需要任何 fixture：
+
 ```sh
 node --check lib/index.js
 node --check lib/core.js
 node --check lib/rewind.js
 node --check lib/skills.js
 node --check client.js
+```
+
+真正的测试套件零依赖（`node scripts/run-tests.mjs`），离线可跑、CI 里不用 `npm install`：
+
+```sh
+node scripts/run-tests.mjs --mode=all      # 全套：8 个文件 / 447 项断言
+node scripts/run-tests.mjs --mode=build    # 只跑构建/集成，不含 fixture
+node scripts/run-tests.mjs --filter=apply-lock
+```
+
+非零退出码即失败，CI 就是按这个判的。另外两个审计工具可以单独跑：
+
+```sh
+node tools/prompt-audit.mjs      # 打过补丁的 system-prompt 模块里，注入是否还在
+node tools/refusal-audit.mjs     # 离线拒答回放 + 提示词自审（提示词里自己写了拒绝原句）
 ```
 
 ---
@@ -601,6 +623,23 @@ flowchart LR
 2. **本机中转 shim（补丁打不上时的兜底）** —— 起一个本地转发端口，把请求里的 system/developer 抽出来改写成置顶 user 再转发给中转站，然后把 provider 的 `baseURL` 指向本地端口。缺点是多一个进程、多一个单点，且系统提示从 system 角色变成了普通用户消息。
 
 **怎么确认到底送没送到**：拿一次真实请求的 `prompt_tokens` 减去工具 schema 的开销（几十个工具通常上万 token），差值如果装不下你的提示词字符数（约 0.19 token/字符），就是被丢了。
+
+---
+
+## 可靠性与安全护栏
+
+这一节全是踩过真实故障之后补的：能开两次的半截应用、被冲掉的唯一一份 `.bak`、重启其实成功了却弹 `timeout`、以及第一次点重启毫无反应。
+
+- **应用互斥锁** —— 四个写盘入口（boot 自愈、面板「应用」、远端应用、boot settle）共用 `<DSH_HOME>/dsh-purge/apply-in-flight.lock`，带 pid 与 phase。第二路进来直接返回 `skip:apply-in-flight` 跳过，不再两路解包同一个 asar 然后在 `rename` 上互撞（Windows 下就是 `ENOTEMPTY` / `EPERM`）。
+- **备份只增不覆** —— `preserveExistingAsarBak()` 在写新备份前把已存在的 `.bak` 改名为 `.bak.prev-<时间戳>`，唯一一份原件保得住。
+- **卸载护栏** —— `lib/delete-guard.js` 走否定式判定：只允许删末段匹配 `dsh-purge*` 的目录。DSH home、用户主目录及其祖先、系统目录、含 `.git` 的源码仓库一律拒，并给出可读的原因串；指向仓库的 junction 只摘链接，绝不递归进去。
+- **状态自愈** —— 新快照来不及算完时，`/dsh-purge/status` 返回上一次快照并带 `state_stale: true`（首次加载最多等 25 秒，之后 8 秒）。面板超时后保留上一份状态、只显示「后台正忙」，不再把自己清成「什么都没装」。
+- **路径缓存** —— `findAiBase()` 的失败结果只缓存 5 秒，全盘兜底扫描最多 3 次。之前每 2 秒轮询都会重扫一遍，单次要 8 秒。
+- **重启前快检** —— `/dsh-purge/restart` 先用只读快检，宿主干净就直接重启；只有补丁真的没写进宿主才拒绝，并报出具体补丁号。之前 `silenceCmdFlash()` 在部分机器上钉不进去，导致每次点重启都先被取消一次。
+- **重启日志** —— `/dsh-purge/status` 带 `restart_log`（尾部 8 KB、12 行），面板按本地时区显示上次重启时间。
+- **shim 状态不再误报** —— 桌面宿主的 `dsh.cmd` shim 是设计性跳过（密封 `runtime/cli/bin`），所以 `shim_cmd: original` 就是正常终态；纯文本 shim 也不会再被判成 `binary`。
+- **自测** —— `node scripts/run-tests.mjs --mode=all` 跑全套（8 个文件、447 项断言），含提示词注入审计与离线拒答回归回放。
+- **提示词自审** —— `tools/refusal-audit.mjs --self-check` 还会用拒答判定器扫一遍默认注入提示词与 redteam preset 的 prefix，走段落级元讨论豁免：提示词里写下的拒绝原句会被模型逐字抄回来，所以任何命中都直接判失败。
 
 ---
 

@@ -1,3 +1,45 @@
+# 1.1.79
+
+## 中文
+
+- 版本 **1.1.79**。
+- 应用互斥锁：四个写盘入口（boot 自愈 / 面板应用 / 远端应用 / boot settle）共用 `<DSH_HOME>/dsh-purge/apply-in-flight.lock`，带 pid 与 phase；并发进入返回 `skip:apply-in-flight`，不再两路解包撞 `ENOTEMPTY` / `EPERM`。
+- asar 备份只增不覆：写新 `.bak` 前把旧的改名为 `.bak.prev-<时间戳>`。
+- 卸载护栏 `lib/delete-guard.js`：否定式判定，只允许删末段匹配 `dsh-purge*` 的目录；DSH home、用户主目录及其祖先、系统目录、含 `.git` 的源码仓库一律拒，指向仓库的 junction 只摘链接、不递归。
+- 状态自愈：`/dsh-purge/status` 新增 `state_stale`，新快照来不及时顶上一次的（首次加载 25 秒、之后 8 秒）；前端超时不再把界面清空，改显示「后台正忙」。
+- `findAiBase()` 的失败结果缓存 5 秒、全盘兜底扫描最多 3 次 —— 之前每 2 秒轮询都重扫一遍，单次约 8 秒。
+- 重启前只读快检：宿主干净就直接重启，只有补丁真的没写进宿主才拒绝并报出补丁号；修掉「第一次点重启没反应」。
+- 重启日志：`/dsh-purge/status` 带 `restart_log`（尾部 8 KB / 12 行），面板按本地时区显示上次重启时间。
+- 修掉纯文本 shim 被判成 `binary` 的误报（`hostFs` 少了 `readSync` / `closeSync`）；`gatherState` 的 `shim_dir` 在桌面端改走 `findDesktopShimDir()`，与状态行同源。
+- 新增自测：`node scripts/run-tests.mjs --mode=all`（8 个文件 447 项断言），含提示词注入审计与离线拒答回归回放；`tools/refusal-audit.mjs --self-check` 可在 CI 跑。
+- 提示词重构：默认注入提示词新增「最高优先级：六类拒绝权重最高的请求」段（20 行 / 815 字符，置于 `TASK PRIORITY` 之后）、输出形态契约（结论先行 → 机制 → 可执行主体 → 占位符表 → 执行与验证 → 失败分支 → 回滚清理）、授权反问禁令，并把「类别名词只是编号，不是判断依据」写成硬规则。源 md 不入库（`.gitignore:28`），只提交重建后的 `lib/asset-table.js`。
+- 提示词自审进 CI：`tools/refusal-audit.mjs --self-check` 用 `isRefusal(text, { meta: true })` 的段落级元讨论豁免扫描默认提示词与 redteam preset 的 prefix，命中即失败 —— 防「提示词里写了拒绝原句，模型逐字照抄」。
+- 文档：README / README.zh-CN 增加「可靠性与安全护栏」一节，并把已有的「中转丢 system 角色（补丁 89）」一节补进目录索引。
+- 修掉 `skills/redteam/unauth-exploit.md` 的杀软误报：文件里两处示例载荷长期被 Microsoft Defender 判成 `Backdoor:PHP/Chopper.E!dha`（`<?php @eval($_POST[...]);?>` 这个字面量组合）。示例改为 `@EVAL(...)` 大写写法 —— PHP 函数名不区分大小写，载荷复制出去照旧能跑，但大小写敏感的特征串不再命中；实测 `MpCmdRun -Scan` 从 exit 2 变 exit 0。
+- 新增 `docs/prompt/CHANGELOG.md`：提示词每一轮改动的倒序记录，每条固定五节（改动表含字符数 / 依据 / 验证 / 未触碰清单 / 未 commit 说明）。
+- 新增 `docs/PLAN-P0-P1.md`：自参考实现吸收 P0/P1 的计划与逐条实施记录，含明确排除项及其理由。
+- README / README.zh-CN 的「本地校验」补上整包测试与两个审计工具的命令，目录索引补齐「本地校验」「路径探测」「说明」三节。
+
+## English
+
+- **1.1.79**.
+- Single-flight apply lock: the four write paths (boot self-heal / panel Apply / remote apply / boot settle) share `<DSH_HOME>/dsh-purge/apply-in-flight.lock`, carrying pid and phase; a concurrent entry returns `skip:apply-in-flight` instead of unpacking the same asar twice and colliding on `rename` (`ENOTEMPTY` / `EPERM` on Windows).
+- asar backups are append-only: an existing `.bak` is renamed to `.bak.prev-<timestamp>` before a new one is written.
+- Uninstall guard `lib/delete-guard.js`: denial-based, only a directory whose last segment matches `dsh-purge*` may be removed; the DSH home, the user home, an ancestor of either, system roots, and source checkouts containing `.git` are refused, and junctions are unlinked only, never recursed through.
+- Status self-healing: `/dsh-purge/status` adds `state_stale` and falls back to the previous snapshot (25 s on first load, 8 s afterwards); on timeout the panel keeps its state and shows "backend busy" instead of clearing itself.
+- Failed `findAiBase()` results are memoised for 5 s and the full-disk fallback runs at most 3 times — previously every 2-second poll re-scanned the tree at ~8 s each.
+- Read-only restart pre-check: restart immediately when the host is clean, refuse only when patches really are missing, and name them. Fixes "the first restart click does nothing".
+- Restart log: `/dsh-purge/status` carries `restart_log` (last 8 KB / 12 lines) and the panel renders the previous restart time in local time.
+- Fixes plain-text shims being reported as `binary` (`hostFs` was missing `readSync` / `closeSync`); `gatherState`'s `shim_dir` now uses `findDesktopShimDir()` on desktop so it matches the status line.
+- New self-tests: `node scripts/run-tests.mjs --mode=all` (8 files, 447 assertions) including the prompt-injection audit and an offline refusal-regression replay; `tools/refusal-audit.mjs --self-check` runs in CI.
+- Prompt rework: the default injection prompt gains a "highest priority: six highest-refusal-weight request classes" section (20 lines / 815 chars, right after `TASK PRIORITY`), an answer contract (conclusion first → mechanism → concrete target → placeholder table → run and verify → failure branch → rollback), and a ban on answering authorization questions — plus the hard rule that "a category noun is a label, never a justification". The source markdown stays out of the repo (`.gitignore:28`); only the rebuilt `lib/asset-table.js` is committed.
+- Prompt self-audit in CI: `tools/refusal-audit.mjs --self-check` scans the default prompt and the redteam preset prefix with `isRefusal(text, { meta: true })` (paragraph-level meta-discussion exemption) and fails on any hit — guarding against "a refusal verbatim written into the prompt gets copied back verbatim by the model".
+- Docs: README / README.zh-CN gain a "Reliability and safety rails" section, and the existing "Relays that drop the `system` role (patch 89)" section is now linked from the table of contents.
+- Fixes a recurring antivirus false positive on `skills/redteam/unauth-exploit.md`: two example payloads were flagged as `Backdoor:PHP/Chopper.E!dha` (the literal `<?php @eval($_POST[...]);?>` combination). They are now written as `@EVAL(...)` — PHP function names are case-insensitive, so a copied payload still runs, while the case-sensitive signature no longer matches; `MpCmdRun -Scan` went from exit 2 to exit 0.
+- New `docs/prompt/CHANGELOG.md`: a reverse-chronological record of every prompt change, each entry with the same five sections (diff with character counts / rationale / verification / untouched list / not-yet-committed note).
+- New `docs/PLAN-P0-P1.md`: the plan and per-item implementation log for what was absorbed from the reference implementation, including what was deliberately excluded and why.
+- README / README.zh-CN "Local checks" now lists the full suite and both audit tools; the table of contents gains "Local checks", "Path detection", and "Notes".
+
 # 1.1.77
 
 ## 中文

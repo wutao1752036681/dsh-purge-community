@@ -79,6 +79,20 @@ window.__ModuleLoader__.load({ id: "dsh-purge", factory: (require) => {
 			} finally { clearTimeout(timer); }
 		}
 
+		/* 后端给的 updated_at 是 UTC ISO 字符串（2026-11-02T15:31:22.173Z），直接显示
+		   会让人按本地时间读成三小时前的错误时刻。统一转成本地 "YYYY-MM-DD HH:mm:ss"。 */
+		function formatLocalStamp(iso) {
+			const raw = String(iso || "");
+			if (!raw) return "-";
+			const d = new Date(raw);
+			if (Number.isNaN(d.getTime())) return raw;
+			const p = (n) => String(n).padStart(2, "0");
+			return (
+				d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate()) +
+				" " + p(d.getHours()) + ":" + p(d.getMinutes()) + ":" + p(d.getSeconds())
+			);
+		}
+
 		function promptBoxEmpty(text) {
 			return !String(text || "").trim();
 		}
@@ -211,6 +225,8 @@ window.__ModuleLoader__.load({ id: "dsh-purge", factory: (require) => {
 			"delete": "删除",
 			"btn.apply": "应用",
 			"btn.apply.busy": "处理中…",
+			"apply.inflight": "已经有一次清洗在进行中，等它跑完再点（当前阶段：{phase}）",
+			"restart.log.title": "上一次重启日志（{time}）",
 			"btn.revert": "还原",
 			"btn.uninstall": "卸载",
 			"btn.uninstall.busy": "卸载中…",
@@ -262,6 +278,8 @@ window.__ModuleLoader__.load({ id: "dsh-purge", factory: (require) => {
 			"action.revert": "还原",
 			"action.uninstall": "卸载",
 			"ok.done": "已完成",
+			"status.stale": "后台正忙，状态稍后刷新",
+			"status.loading": "正在读取状态…",
 			"err.action": "失败: {error}",
 			"err.status": "读取失败: {error}",
 			"err.override": "读取失败: {error}",
@@ -563,6 +581,8 @@ window.__ModuleLoader__.load({ id: "dsh-purge", factory: (require) => {
 			"delete": "Delete",
 			"btn.apply": "Apply",
 			"btn.apply.busy": "Working…",
+			"apply.inflight": "An apply is already running — wait for it to finish (phase: {phase})",
+			"restart.log.title": "Last restart log ({time})",
 			"btn.revert": "Restore",
 			"btn.uninstall": "Uninstall",
 			"btn.uninstall.busy": "Uninstalling…",
@@ -614,6 +634,8 @@ window.__ModuleLoader__.load({ id: "dsh-purge", factory: (require) => {
 			"action.revert": "Restore",
 			"action.uninstall": "Uninstall",
 			"ok.done": "Done",
+			"status.stale": "Backend busy; status will refresh shortly",
+			"status.loading": "Reading status…",
 			"err.action": "Failed: {error}",
 			"err.status": "Read failed: {error}",
 			"err.override": "Read failed: {error}",
@@ -1509,6 +1531,9 @@ body:not([data-ds-dark-theme]) .dshp-auth-ops button.primary{background:var(--ds
 			const [updateJob, setUpdateJob] = useState(null);
 			const [askRestart, setAskRestart] = useState(false);
 			const suppressRestartAsk = useRef(false);
+			/* 应用完成且马上要重启：这段时间不再拉 status。那一发大概率撞在进程退出
+			   窗口上，60 秒后 abort 成「读取失败: timeout」，把刚显示的"完成"盖掉。 */
+			const quietWhileRestarting = useRef(false);
 			const [askUninstall, setAskUninstall] = useState(false);
 			const [uninstallBusy, setUninstallBusy] = useState(false);
 			const [notice, setNotice] = useState({ kind: "idle", text: "" });
@@ -1671,21 +1696,42 @@ body:not([data-ds-dark-theme]) .dshp-auth-ops button.primary{background:var(--ds
 
 			const loadAll = useCallback(() => {
 				const tr = tRef.current;
+				// 正在重启：进程随时可能消失，所有请求都可能挂到超时。等页面自己刷。
+				if (quietWhileRestarting.current) return;
 				apiJson("/dsh-purge/status")
 					.then((d) => {
+						/* 后端还在第一次读状态（gatherState 有上限，超了就先回这个）。
+						   这不是失败，别弹红字，也别把界面刷成"什么都没装"。 */
+						if (d && d.ok && d.state_loading) {
+							setNotice({ kind: "idle", text: tr("status.loading") });
+							setTimeout(() => { loadAll(); }, 3000);
+							return;
+						}
 						if (d && d.ok) {
 							setState(d);
 							if (d.channel) setChannel(d.channel);
 							if (d.update && d.update.ok && !d.update.error) setUpdateInfo(d.update);
 							if (d.boot_full_quit && !suppressRestartAsk.current) setAskRestart(true);
+							/* 后端正忙（应用/回滚在写盘），这一份是上一次的快照。别当成失败，也别当成最新。 */
+							if (d.state_stale) setNotice({ kind: "idle", text: tr("status.stale") });
+						} else if (d && d.ready === false && !d.error) {
+							/* 宿主刚起来，web 树还没就绪：这不是错误，等它几秒。 */
+							setNotice({ kind: "idle", text: tr("status.loading") });
+							setTimeout(() => { loadAll(); }, 3000);
 						} else {
 							setState({ ok: false, patches_total: 0, patches_applied: 0, patch_status: {}, shim_cmd: "n/a", shim_ps1: "n/a", shim_bin: "n/a", has_backup: false });
 							setNotice({ kind: "error", text: tr("err.status", { error: (d && d.error) || "bad response" }) });
 						}
 					})
 					.catch((e) => {
-						setState({ ok: false, patches_total: 0, patches_applied: 0, patch_status: {}, shim_cmd: "n/a", shim_ps1: "n/a", shim_bin: "n/a", has_backup: false });
-						setNotice({ kind: "error", text: tr("err.status", { error: e.message }) });
+						/* 读不到时不要把 state 清空 —— 那会让界面瞬间显示成"什么都没装"，
+						   比"读取失败"更吓人。保留上一次的状态，超时只说"稍后刷新"。 */
+						const raw = String((e && e.message) || "").replace(/^Error:\s*/i, "");
+						const timedOut = /timeout|abort|超时|ETIMEDOUT/i.test(raw);
+						setNotice({
+							kind: timedOut ? "idle" : "error",
+							text: timedOut ? tr("status.stale") : tr("err.status", { error: raw }),
+						});
 					});
 				apiJson("/dsh-purge/update")
 					.then((d) => {
@@ -1754,6 +1800,14 @@ body:not([data-ds-dark-theme]) .dshp-auth-ops button.primary{background:var(--ds
 								return;
 							}
 							if (!d.ok) {
+								// 409 不是失败：只是另一路已经在跑（双击 / 两个标签 / 桌面端和 Web 端同时点）。
+								// 弹红色错误条会让人以为坏了，所以单独走 idle 通知并把阶段带上。
+								if (d.code === "apply-in-flight") {
+									const phase = d.apply_phase || (d.apply_lock && d.apply_lock.phase) || "?";
+									setNotice({ kind: "idle", text: tr("apply.inflight", { phase }) });
+									loadAll();
+									return;
+								}
 								setNotice({ kind: "error", text: tr("err.action", { action: label, error: d.error || "" }) });
 								return;
 							}
@@ -1790,20 +1844,37 @@ body:not([data-ds-dark-theme]) .dshp-auth-ops button.primary{background:var(--ds
 									kind: "error",
 									text: tr("restart.incomplete", { detail: parts.join("；") }),
 								});
-								loadAll();
 								if (d.restarting || d.needs_full_quit) {
+									quietWhileRestarting.current = true;
+									setTimeout(() => {
+										if (!quietWhileRestarting.current) return;
+										quietWhileRestarting.current = false;
+										loadAll();
+									}, 90000);
 									suppressRestartAsk.current = false;
 									setAskRestart(true);
+								} else {
+									loadAll();
 								}
 								return;
 							}
 							if (action === "apply") {
 								setNotice({ kind: "ok", text: tr("ok.done") });
-								loadAll();
 								if (d.restarting || d.needs_full_quit) {
+									/* 后端已经在安排重启，这一发 status 只会撞在退出窗口上。
+									   跳过它，保住"完成"这条提示；页面重启后自己刷新。 */
+									quietWhileRestarting.current = true;
+									/* 万一重启没起来（进程没死、或先失败了），别让界面一直哑着：
+									   90 秒后自动恢复刷新。正常情况页面早 reload 了，走不到这里。 */
+									setTimeout(() => {
+										if (!quietWhileRestarting.current) return;
+										quietWhileRestarting.current = false;
+										loadAll();
+									}, 90000);
 									suppressRestartAsk.current = false;
 									setAskRestart(true);
 								} else {
+									loadAll();
 									setAskRestart(false);
 								}
 								return;
@@ -2099,6 +2170,15 @@ body:not([data-ds-dark-theme]) .dshp-auth-ops button.primary{background:var(--ds
 				h("p", { className: "dshp-hint", style: { margin: "8px 0 0", color: "var(--dshp-mute)", fontSize: 12 } }, t("apply.hint")),
 				s && !s.ai_base ? h("p", { className: "dshp-hint", style: { margin: "8px 0 0", color: "var(--dshp-danger, #c44)", fontSize: 12 } }, hostText(t, "warn.noRoot", hostSurface)) : null,
 				s && s.ai_base && s.override_status === "missing" ? h("p", { className: "dshp-hint", style: { margin: "8px 0 0", color: "var(--dshp-mute)", fontSize: 12 } }, t("warn.noInject")) : null,
+				// 重启失败时用户只看到"没反应"。restart helper 一直在写日志，这里把尾部摊开。
+				s && s.restart_log && s.restart_log.exists && (s.restart_log.lines || []).length
+					? h("details", { className: "dshp-hint", style: { margin: "8px 0 0", fontSize: 12 } },
+						h("summary", { style: { cursor: "pointer", color: "var(--dshp-mute)" } },
+							t("restart.log.title", { time: formatLocalStamp(s.restart_log.updated_at) })),
+						h("pre", {
+							style: { maxHeight: 180, overflow: "auto", whiteSpace: "pre-wrap", wordBreak: "break-all", margin: "6px 0 0", fontSize: 11, lineHeight: 1.45, background: "rgba(127,127,127,0.08)", padding: "6px 8px", borderRadius: 6 },
+						}, (s.restart_log.lines || []).join("\n")))
+					: null,
 				askRestart ? h(RestartAsk, {
 					t: t,
 					theme: detectHostTheme(),
@@ -2868,14 +2948,20 @@ body:not([data-ds-dark-theme]) .dshp-auth-ops button.primary{background:var(--ds
 				setBusy(false);
 			};
 			let sawDrop = false;
+			// 90 秒：后端在重启前可能还要补一轮补丁，25 秒会把「正在补」误判成「没开始」。
 			const watch = setTimeout(() => {
 				if (sawDrop) return;
 				stop("");
-			}, 25000);
+			}, 90000);
 			fetch("/dsh-purge/restart", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })
 				.then((r) => r.json())
 				.then((d) => {
-					if (!d.ok) throw new Error(d.error || "restart failed");
+					if (!d.ok) {
+						const pend = Array.isArray(d.pending) && d.pending.length
+							? "（未写入 #" + d.pending.slice(0, 5).join(", #") + (d.pending.length > 5 ? "…" : "") + "）"
+							: "";
+						throw new Error((d.error || "restart failed") + pend);
+					}
 					const next = (d && d.surface) || surf;
 					const full = next === "desktop" || (d && d.fullApp) || desktop;
 					if (full && d.already) {
@@ -4173,20 +4259,7 @@ body[data-ds-dark-theme] .dshp-rewind-item span{color:var(--dsw-alias-label-tert
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(req),
-    }).then(async (res) => {
-      const text = await res.text().catch(() => '')
-      let data = null
-      try { data = text ? JSON.parse(text) : null } catch {
-        return { ok: false, error: res.status + ' non-json: ' + String(text).slice(0, 120) }
-      }
-      if (!res.ok) {
-        return Object.assign({}, data || {}, {
-          ok: false,
-          error: (data && (data.error || data.message)) || (res.status + ' ' + res.statusText),
-        })
-      }
-      return data
-    })
+    }).then((res) => res.json())
 
     let ui = { open: true, tab: 'assets' }
     const subs = new Set()
@@ -5706,8 +5779,7 @@ body[data-ds-dark-theme] .dshp-rewind-item span{color:var(--dsw-alias-label-tert
           a.href = url
           a.download = 'report-' + String(label || 'score').replace(/[^\w.\-]/g, '_') + '.md'
           a.click()
-          /* 立刻 revoke 会在部分浏览器里让 click 启动的下载断流,延后一拍 */
-          setTimeout(() => { try { URL.revokeObjectURL(url) } catch { /* ignore */ } }, 1000)
+          URL.revokeObjectURL(url)
           setMsg({ ok: '已下载：' + label })
         } catch (e) { setMsg({ err: '下载失败：' + ((e && e.message) || e) }) }
       }
@@ -7302,17 +7374,6 @@ body[data-ds-dark-theme] .dshp-rewind-item span{color:var(--dsw-alias-label-tert
       const [open, setOpen] = React.useState(false)
       const [msg, setMsg] = React.useState(null)
       const [countdown, setCountdown] = React.useState(0)
-      const countdownRef = React.useRef(null)
-      const clearCountdown = React.useCallback(() => {
-        if (countdownRef.current) { try { clearInterval(countdownRef.current) } catch { /* ignore */ } }
-        countdownRef.current = null
-      }, [])
-      React.useEffect(() => () => clearCountdown(), [clearCountdown])
-      const closeModal = React.useCallback(() => {
-        clearCountdown()
-        setCountdown(0)
-        setOpen(false)
-      }, [clearCountdown])
 
       const check = (silent) => {
         if (!silent) setBusy(true)
@@ -7343,10 +7404,9 @@ body[data-ds-dark-theme] .dshp-rewind-item span{color:var(--dsw-alias-label-tert
           setMsg({ ok: '已安装 ' + (r.installed || '') + '，正在重启当前宿主…' })
           /* 重启会断开这个页面：倒计时提示用户稍后刷新 */
           setCountdown(6)
-          clearCountdown()
-          countdownRef.current = setInterval(() => {
+          const t = setInterval(() => {
             setCountdown((n) => {
-              if (n <= 1) { clearCountdown(); window.location.reload(); return 0 }
+              if (n <= 1) { clearInterval(t); window.location.reload(); return 0 }
               return n - 1
             })
           }, 1000)
@@ -7378,7 +7438,7 @@ body[data-ds-dark-theme] .dshp-rewind-item span{color:var(--dsw-alias-label-tert
               title: '重新检查 npm 上的最新版本',
             }, busy ? '检查中…' : '检查更新'),
         open
-          ? h('div', { className: 'rt-modal', 'aria-hidden': 'true', onClick: closeModal },
+          ? h('div', { className: 'rt-modal', 'aria-hidden': 'true', onClick: () => setOpen(false) },
               h('div', { className: 'rt-modal-box', onClick: (e) => e.stopPropagation() },
                 h('h4', { style: { marginTop: 0 } }, '更新 RedTeam 模式'),
                 h('div', { className: 'rt-kv' }, h('b', null, '当前版本'), h('span', null, current || '未知')),
@@ -7404,7 +7464,7 @@ body[data-ds-dark-theme] .dshp-rewind-item span{color:var(--dsw-alias-label-tert
                   ? h('div', { className: 'rt-foot' }, '宿主正在重启，' + countdown + ' 秒后自动刷新页面…')
                   : null,
                 h('div', { style: { display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 10 } },
-                  h('button', { className: 'rt-btn', onClick: closeModal }, '关闭'),
+                  h('button', { className: 'rt-btn', onClick: () => setOpen(false) }, '关闭'),
                   h('button', {
                     className: 'rt-btn rt-btn-primary',
                     disabled: busy || blockers.length > 0 || mode === 'dev',

@@ -33,3 +33,7 @@ default-prompt-inject.md
 /official-harness-payload.7z
 *.asar
 *.asar.bak
+
+# 本地参考资料与问题清单，不进仓库
+Xsdsh-purge-4.5.34-Beta/
+issues1.md

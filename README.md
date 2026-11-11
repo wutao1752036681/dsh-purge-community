@@ -46,9 +46,14 @@
 - [Preview](#preview)
 - [Usage](#usage)
 - [Own servers](#own-servers)
+- [Local checks](#local-checks)
 - [How it works](#how-it-works)
 - [Restore](#restore)
+- [Path detection](#path-detection)
+- [Relays that drop the `system` role](#relays-that-drop-the-system-role-injection-silently-ignored)
+- [Reliability and safety rails](#reliability-and-safety-rails)
 - [Releases](#releases)
+- [Notes](#notes)
 
 ---
 
@@ -448,6 +453,8 @@ The box sits under Prompt. If the dock does not show it yet, quit DeepSeek Harne
 
 ## Local checks
 
+Syntax only — fast, no fixtures:
+
 ```sh
 node --check lib/index.js
 node --check lib/core.js
@@ -458,6 +465,21 @@ node --check lib/host.js
 node --check lib/rewind.js
 node --check lib/skills.js
 node --check client.js
+```
+
+The real suite is dependency-free (`node scripts/run-tests.mjs`), so it runs offline and in CI without `npm install`:
+
+```sh
+node scripts/run-tests.mjs --mode=all      # everything: 8 files, 447 assertions
+node scripts/run-tests.mjs --mode=build    # build/integration only, no fixtures
+node scripts/run-tests.mjs --filter=apply-lock
+```
+
+A non-zero exit means a failure, which is what the CI job keys on. The other two audits stand alone:
+
+```sh
+node tools/prompt-audit.mjs      # is the injection still present in a patched system-prompt module?
+node tools/refusal-audit.mjs     # offline refusal replay + prompt self-audit (banned lines written into the prompt itself)
 ```
 
 ---
@@ -593,6 +615,23 @@ You can also flip it from chat: the `purge_system_as_user` model tool (`action=o
 2. **Local relay shim (fallback when patches cannot land)** —— a local port that lifts `system`/`developer` out of the request, rewrites them as a leading `user` message, and forwards to the relay; then point the provider `baseURL` at it. Costs an extra process and a single point of failure, and the prompt is no longer a real system message.
 
 **How to verify delivery**: take a real request's `prompt_tokens`, subtract the tool-schema overhead (tens of tools is usually >10k tokens). If the remainder cannot hold your prompt (roughly 0.19 tokens per character), it was dropped.
+
+---
+
+## Reliability and safety rails
+
+Everything in this section was added after a round of real failures: a half-finished apply that could be started twice, an overwritten `.bak`, a status poll that reported `timeout` while the restart was in fact succeeding, and a first restart click that did nothing.
+
+- **Single-flight apply lock** —— the four write paths (boot self-heal, panel Apply, remote apply, boot settle) share one lock at `<DSH_HOME>/dsh-purge/apply-in-flight.lock`, carrying pid and phase. A second entry returns `skip:apply-in-flight` instead of unpacking the same asar twice and colliding on `rename` (which is `ENOTEMPTY` / `EPERM` on Windows).
+- **Backups are append-only** —— `preserveExistingAsarBak()` renames an existing `.bak` to `.bak.prev-<timestamp>` before writing a new one, so the single pristine copy survives every re-apply.
+- **Uninstall guard** —— `lib/delete-guard.js` decides by denial: only a directory whose last segment matches `dsh-purge*` may be removed. The DSH home, the user home, an ancestor of either, system roots, and source checkouts (anything containing `.git`) are refused with a machine-readable reason. A junction that points into the repo is unlinked only, never recursed through.
+- **Status self-healing** —— when a fresh gather does not finish in time, `/dsh-purge/status` answers with the last good snapshot plus `state_stale: true` (it waits up to 25 s on first load, 8 s afterwards). On timeout the panel keeps the previous state and says "backend busy" instead of clearing itself to "nothing installed" behind a red error.
+- **Path cache** —— a failed `findAiBase()` is memoised for 5 s and the full-disk fallback runs at most 3 times. Before this, every 2-second poll re-scanned the tree and one scan took ~8 s.
+- **Cheap restart pre-check** —— `/dsh-purge/restart` runs a read-only check first and restarts immediately when the host is clean. It refuses only when patches really are missing, and then names them. Previously `silenceCmdFlash()` could not be pinned on some machines, so the first click of every restart was cancelled.
+- **Restart log** —— `/dsh-purge/status` carries `restart_log` (last 8 KB, 12 lines), and the panel renders the previous restart time in your own timezone.
+- **Honest shim status** —— on the desktop host the `dsh.cmd` shim is skipped by design (sealed `runtime/cli/bin`), so `shim_cmd: original` is the correct final state. Plain-text shims are no longer misreported as `binary`.
+- **Self-tests** —— `node scripts/run-tests.mjs --mode=all` runs the whole suite (8 files, 447 assertions), including the prompt-injection audit and an offline refusal-regression replay.
+- **Prompt self-audit** —— `tools/refusal-audit.mjs --self-check` also scans the default injection prompt and the redteam preset prefix with the refusal judge, in a paragraph-level meta-discussion mode: a banned-refusal line written into the prompt itself will be copied back verbatim by the model, so any hit fails the build.
 
 ---
 

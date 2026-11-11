@@ -1,0 +1,7 @@
+{
+  "clean-marked.js": "clean",
+  "clean-inferred.js": "clean",
+  "dirty-identity.js": "dirty",
+  "dirty-drops.js": "dirty",
+  "foreign.js": "foreign"
+}
